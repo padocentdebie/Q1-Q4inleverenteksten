@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>PV‑Bevindingen + Digibord</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Algemeen */
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; overflow: hidden; position: fixed; width: 100%; height: 100%; }
+
+        /* Tabs */
+        .tab-btn { cursor: pointer; padding: 10px 20px; border: none; border-radius: 8px 8px 0 0; font-weight: bold; background: #e2e8f0; color: #1e293b; transition: 0.2s; }
+        .tab-btn.active { background: #ffffff; color: #003082; border-bottom: 3px solid #003082; }
+
+        /* PV Feed */
+        .feed-container {
+            height: 65vh;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid #cbd5e1;
+            padding: 16px;
+        }
+        .feedback-list { max-height: 120px; overflow-y: auto; }
+
+        /* Digibord */
+        #board-container {
+            position: relative;
+            width: 100%;
+            height: 70vh;
+            background: #ffffff;
+            border: 2px solid #003082;
+            border-radius: 12px;
+            touch-action: none;
+        }
+        #board-container canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: crosshair;
+            border-radius: 10px;
+        }
+        #trash-zone {
+            position: absolute; top: 10px; left: 15px;
+            width: 55px; height: 55px;
+            background: #fee2e2; border: 2px dashed #f87171; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; font-size: 24px;
+            opacity: 0.6; transition: 0.2s; z-index: 10;
+        }
+        #trash-zone.active { transform: scale(1.2); background: #ef4444; opacity: 1; border-style: solid; }
+
+        /* Algemene helpers */
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<!-- ====== LOGIN ====== -->
+<div id="login-screen" class="flex items-center justify-center min-h-screen px-4 bg-slate-900">
+    <div class="bg-slate-800 p-8 rounded-xl shadow-2xl w-full max-w-md border border-slate-700">
+        <h1 class="text-2xl font-bold text-center text-blue-400 mb-6">📋 PV + Digibord</h1>
+        <form id="login-form" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1 text-slate-200">Voornaam</label>
+                <input type="text" id="student-name" required class="w-full p-2.5 rounded bg-slate-700 border border-slate-600 focus:outline-none focus:border-blue-500 text-white" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-slate-200">Klas</label>
+                <select id="student-class" required class="w-full p-2.5 rounded bg-slate-700 border border-slate-600 focus:outline-none focus:border-blue-500 text-white">
+                    <option value="" disabled selected>Kies je klas...</option>
+                    <option value="Alpha">Alpha</option><option value="Bravo">Bravo</option>
+                    <option value="Charlie">Charlie</option><option value="Delta">Delta</option>
+                    <option value="Echo">Echo</option><option value="Foxtrot">Foxtrot</option>
+                    <option value="Golf">Golf</option><option value="Hotel">Hotel</option>
+                    <option value="Juliet">Juliet</option>
+                    <!-- Indie weggelaten -->
+                    <option value="Kilo">Kilo</option><option value="Lima">Lima</option>
+                    <option value="Mike">Mike</option>
+                </select>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 py-2.5 rounded font-semibold transition mt-2">Inloggen</button>
+        </form>
+    </div>
+</div>
+
+<!-- ====== HOOFDSCHERM ====== -->
+<div id="app-screen" class="hidden h-screen flex flex-col bg-slate-100">
+    <!-- Header met tabs -->
+    <header class="bg-white shadow-md p-4 flex flex-wrap items-center justify-between border-b border-slate-200">
+        <div class="flex items-center gap-4">
+            <h1 class="text-xl font-bold text-blue-700">📚 PV + Digibord</h1>
+            <span class="text-sm text-slate-500">Klas: <span id="display-class" class="font-semibold text-emerald-600"></span></span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-sm bg-slate-100 px-3 py-1.5 rounded border border-slate-300">
+                <span class="text-slate-500">Ingelogd:</span>
+                <span class="font-semibold text-emerald-600" id="display-user"></span>
+            </span>
+            <button id="btn-logout" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-medium transition">Uitloggen</button>
+            <button id="btn-wipe-data" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded text-sm font-medium transition">Wis alle data</button>
+        </div>
+    </header>
+
+    <!-- Tabs -->
+    <div class="bg-white border-b border-slate-200 px-4 pt-2">
+        <button id="tab-pv" class="tab-btn active">📄 PV‑Bevindingen</button>
+        <button id="tab-board" class="tab-btn">🖊️ Digibord</button>
+    </div>
+
+    <!-- Inhoud -->
+    <div class="flex-1 overflow-hidden p-4">
+        <!-- TAB PV -->
+        <div id="pv-panel" class="h-full flex flex-col lg:flex-row gap-4">
+            <!-- Inleverformulier -->
+            <div class="lg:w-1/3 bg-white rounded-lg border border-slate-200 p-4 shadow-sm flex flex-col">
+                <h2 class="text-lg font-bold text-blue-700 mb-2">Nieuwe PV‑Bevinding</h2>
+                <p class="text-xs text-slate-500 mb-3">Schrijf je proces‑verbaal in <strong>onvoltooid verleden tijd</strong> en beschrijf het <strong>kale en veranderlijke decor</strong>.</p>
+                <form id="pv-form" class="flex flex-col flex-1 space-y-3">
+                    <textarea id="pv-text" required placeholder="Typ hier je volledige PV‑Bevinding..." class="flex-1 w-full p-3 rounded border border-slate-300 focus:outline-none focus:border-blue-500 text-sm resize-none text-slate-800 bg-white"></textarea>
+                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded font-semibold text-sm transition">Verstuur PV</button>
+                </form>
+            </div>
+
+            <!-- Livefeed -->
+            <div class="lg:w-2/3 bg-white rounded-lg border border-slate-200 p-4 shadow-sm flex flex-col">
+                <h2 class="text-lg font-bold text-amber-600 mb-2">📡 Live Feed – Klas <span id="feed-class-label"></span></h2>
+                <div id="live-feed" class="feed-container space-y-4">
+                    <!-- Inzendingen verschijnen hier -->
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB DIGIBORD -->
+        <div id="board-panel" class="hidden h-full flex flex-col">
+            <div id="board-container" class="relative">
+                <canvas id="whiteboard" width="1200" height="800"></canvas>
+                <div id="board-status" class="absolute top-2 right-2 bg-white/80 px-3 py-1 rounded-full text-xs font-bold border border-slate-300">Status: Laden...</div>
+                <div id="trash-zone">🗑️</div>
+            </div>
+            <!-- Toolbar voor digibord -->
+            <div class="bg-white p-3 rounded-b-xl border border-slate-200 flex flex-wrap gap-3 items-center justify-center mt-2 shadow-sm">
+                <input type="text" id="wordInput" placeholder="Woord invoeren..." class="flex-1 min-w-[150px] p-2 border border-slate-300 rounded text-sm" />
+                <button id="addBtn" class="bg-blue-700 hover:bg-blue-800 text-white px-4 py-2 rounded font-semibold text-sm">Toevoegen</button>
+                <button id="clearBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold text-sm">Wis Bord</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ====== FIREBASE IMPORTS ====== -->
+<script type="importmap">
+{
+    "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/database": "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js"
+    }
+}
+</script>
+
+<script type="module">
+    import { initializeApp } from "firebase/app";
+    import { getDatabase, ref, push, onValue, onChildAdded, onChildChanged, onChildRemoved, remove, update, set, query, orderByChild, equalTo } from "firebase/database";
+
+    // ----- Firebase config (zelfde als PV-module) -----
+    const firebaseConfig = {
+        apiKey: "AIzaSyCJ5of6K5MRFXMOiEqEyZxZbs1xoJtXuN8",
+        authDomain: "pvaangifteinleveren.firebaseapp.com",
+        databaseURL: "https://pvaangifteinleveren-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "pvaangifteinleveren",
+        storageBucket: "pvaangifteinleveren.firebasestorage.app",
+        messagingSenderId: "989190242332",
+        appId: "1:989190242332:web:40bb7c408441c707835fd9"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    // ----- Globale variabelen -----
+    let currentStudent = "";
+    let currentClass = "";
+    let pvQuery = null;
+    const feedbackListeners = new Map();
+
+    // ----- DOM referenties -----
+    const loginScreen = document.getElementById('login-screen');
+    const appScreen = document.getElementById('app-screen');
+    const loginForm = document.getElementById('login-form');
+    const studentNameInput = document.getElementById('student-name');
+    const studentClassSelect = document.getElementById('student-class');
+    const displayUser = document.getElementById('display-user');
+    const displayClass = document.getElementById('display-class');
+    const feedClassLabel = document.getElementById('feed-class-label');
+    const liveFeed = document.getElementById('live-feed');
+    const pvForm = document.getElementById('pv-form');
+    const pvText = document.getElementById('pv-text');
+
+    // Tabs
+    const tabPv = document.getElementById('tab-pv');
+    const tabBoard = document.getElementById('tab-board');
+    const pvPanel = document.getElementById('pv-panel');
+    const boardPanel = document.getElementById('board-panel');
+
+    // Digibord
+    const canvas = document.getElementById('whiteboard');
+    const ctx = canvas.getContext('2d');
+    const boardStatus = document.getElementById('board-status');
+    const trashZone = document.getElementById('trash-zone');
+    const wordInput = document.getElementById('wordInput');
+    const addBtn = document.getElementById('addBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    // ----- Hulpfuncties PV -----
+    function formatTime(timestamp) {
+        return new Date(timestamp).toLocaleString('nl-NL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    // ----- PV Feedback versturen -----
+    window.verzendFeedback = function(pvKey) {
+        const inputId = `feedback-input-${pvKey}`;
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        const tekst = input.value.trim();
+        if (!tekst) return;
+
+        const feedbackRef = ref(database, `pv_bevindingen/${pvKey}/feedback`);
+        push(feedbackRef, {
+            van: currentStudent,
+            tekst: tekst,
+            timestamp: Date.now()
+        }).then(() => {
+            input.value = '';
+        }).catch(err => {
+            console.error("Fout bij feedback:", err);
+            alert("Feedback kon niet worden opgeslagen.");
+        });
+    };
+
+    // ----- PV Inzendingkaart (bouwen/updaten) -----
+    function bouwInzendingCard(key, data) {
+        let card = document.getElementById(`card-${key}`);
+        if (!card) {
+            card = document.createElement('div');
+            card.id = `card-${key}`;
+            card.className = "bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-sm space-y-2";
+            liveFeed.appendChild(card);
+        }
+
+        const student = data.student || 'Onbekend';
+        const tekst = data.tekst || '(leeg)';
+        const timestamp = data.timestamp || Date.now();
+
+        const feedbackData = data.feedback || {};
+        let feedbackHtml = '';
+        Object.values(feedbackData).forEach(f => {
+            feedbackHtml += `
+                <div class="bg-slate-100 p-2 rounded border border-slate-300 text-xs text-slate-700 mb-1">
+                    <span class="font-bold text-amber-600">${f.van}:</span> ${f.tekst}
+                </div>
+            `;
+        });
+
+        card.innerHTML = `
+            <div class="flex justify-between items-start border-b border-slate-300 pb-1">
+                <div>
+                    <span class="font-bold text-emerald-700">${student}</span>
+                    <span class="text-xs text-slate-500 ml-2">${formatTime(timestamp)}</span>
+                </div>
+                <span class="text-xs text-slate-400">${key.substring(0,6)}</span>
+            </div>
+            <div class="text-slate-800 whitespace-pre-wrap bg-white p-3 rounded border border-slate-200 text-base leading-relaxed">
+                ${tekst}
+            </div>
+            <div class="pt-1">
+                <p class="text-xs font-semibold text-amber-600 mb-1">💬 Feedback (o.a. redenen wetenschap, datum/tijd, onderbouwing, juridische verantwoording, onvoltooid verleden tijd, bevoegdheid/hoedanigheid, decor, interpunctie):</p>
+                <div id="feedback-list-${key}" class="feedback-list space-y-1">
+                    ${feedbackHtml || '<p class="text-xs text-slate-400 italic">Nog geen feedback.</p>'}
+                </div>
+            </div>
+            <div class="flex gap-1.5 pt-1">
+                <input type="text" id="feedback-input-${key}" placeholder="Typ feedback..." class="flex-1 bg-white border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500" />
+                <button onclick="window.verzendFeedback('${key}')" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1 rounded transition">Stuur</button>
+            </div>
+        `;
+
+        // Feedback listener (realtime)
+        if (feedbackListeners.has(key)) {
+            const oldRef = feedbackListeners.get(key);
+            oldRef.off();
+            feedbackListeners.delete(key);
+        }
+
+        const feedbackRef = ref(database, `pv_bevindingen/${key}/feedback`);
+        const listener = onChildAdded(feedbackRef, (snapshot) => {
+            const fbData = snapshot.val();
+            const list = document.getElementById(`feedback-list-${key}`);
+            if (list) {
+                const div = document.createElement('div');
+                div.className = "bg-slate-100 p-2 rounded border border-slate-300 text-xs text-slate-700 mb-1";
+                div.innerHTML = `<span class="font-bold text-amber-600">${fbData.van}:</span> ${fbData.tekst}`;
+                list.appendChild(div);
+                const emptyMsg = list.querySelector('.italic');
+                if (emptyMsg) emptyMsg.remove();
+                list.scrollTop = list.scrollHeight;
+            }
+        });
+        feedbackListeners.set(key, listener);
+    }
+
+    function verwijderInzending(key) {
+        const card = document.getElementById(`card-${key}`);
+        if (card) card.remove();
+        if (feedbackListeners.has(key)) {
+            feedbackListeners.get(key).off();
+            feedbackListeners.delete(key);
+        }
+    }
+
+    // ----- PV Listeners (per klas) -----
+    function setupPvListeners() {
+        if (pvQuery) {
+            pvQuery.off();
+            pvQuery = null;
+        }
+        for (let [key, listenerRef] of feedbackListeners) {
+            listenerRef.off();
+        }
+        feedbackListeners.clear();
+
+        const pvRef = ref(database, 'pv_bevindingen');
+        pvQuery = query(pvRef, orderByChild('klas'), equalTo(currentClass));
+
+        onChildAdded(pvQuery, (snapshot) => {
+            bouwInzendingCard(snapshot.key, snapshot.val());
+            liveFeed.scrollTop = liveFeed.scrollHeight;
+        });
+        onChildChanged(pvQuery, (snapshot) => {
+            bouwInzendingCard(snapshot.key, snapshot.val());
+        });
+        onChildRemoved(pvQuery, (snapshot) => {
+            verwijderInzending(snapshot.key);
+        });
+    }
+
+    // ======================================================
+    // DIGIBORD LOGICA (aangepast naar dezelfde Firebase)
+    // ======================================================
+    let boardObjects = {};
+    let isDrawing = false, isDragging = false;
+    let draggedId = null, currentPathId = null;
+    let offsetX = 0, offsetY = 0;
+
+    function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return {
+            x: (clientX - rect.left) * (canvas.width / rect.width),
+            y: (clientY - rect.top) * (canvas.height / rect.height),
+            rawX: clientX,
+            rawY: clientY
+        };
+    }
+
+    function startBoardAction(e) {
+        const { x, y } = getPos(e);
+        draggedId = null; isDragging = false;
+
+        const entries = Object.entries(boardObjects).reverse();
+        for (const [id, obj] of entries) {
+            if (obj.type === 'text') {
+                ctx.font = "bold 24px Arial";
+                const w = ctx.measureText(obj.text).width;
+                if (x > obj.x - 10 && x < obj.x + w + 10 && y > obj.y - 35 && y < obj.y + 15) {
+                    draggedId = id; isDragging = true;
+                    offsetX = x - obj.x; offsetY = y - obj.y;
+                    return;
+                }
+            }
+        }
+        isDrawing = true;
+        const newPathRef = push(ref(database, `classes/${currentClass}/board`));
+        currentPathId = newPathRef.key;
+        set(newPathRef, { type: 'path', points: [{x, y}] });
+    }
+
+    function moveBoardAction(e) {
+        if (!isDragging && !isDrawing) return;
+        const { x, y, rawX, rawY } = getPos(e);
+
+        if (isDragging && draggedId) {
+            update(ref(database, `classes/${currentClass}/board/${draggedId}`), { x: x - offsetX, y: y - offsetY });
+            const tRect = trashZone.getBoundingClientRect();
+            trashZone.classList.toggle('active', rawX > tRect.left && rawX < tRect.right && rawY > tRect.top && rawY < tRect.bottom);
+        } else if (isDrawing && currentPathId) {
+            const path = boardObjects[currentPathId];
+            if (path && path.points) {
+                const lastP = path.points[path.points.length - 1];
+                if (Math.hypot(x - lastP.x, y - lastP.y) > 5) {
+                    update(ref(database, `classes/${currentClass}/board/${currentPathId}`), {
+                        points: [...path.points, {x, y}]
+                    });
+                }
+            }
+        }
+    }
+
+    function stopBoardAction(e) {
+        if (isDragging && draggedId && trashZone.classList.contains('active')) {
+            remove(ref(database, `classes/${currentClass}/board/${draggedId}`));
+        }
+        isDrawing = isDragging = false;
+        draggedId = currentPathId = null;
+        trashZone.classList.remove('active');
+    }
+
+    function setupBoardListeners() {
+        // Luister naar board data
+        const boardRef = ref(database, `classes/${currentClass}/board`);
+        onValue(boardRef, (snap) => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            boardObjects = snap.val() || {};
+            snap.forEach((child) => {
+                const obj = child.val();
+                const isSel = child.key === draggedId;
+                if (obj.type === 'text') {
+                    ctx.font = "bold 24px Arial";
+                    ctx.fillStyle = isSel ? "#003082" : "#333";
+                    ctx.fillText(obj.text, obj.x, obj.y);
+                    if (isSel) ctx.strokeRect(obj.x - 5, obj.y - 30, ctx.measureText(obj.text).width + 10, 40);
+                } else if (obj.type === 'path' && obj.points) {
+                    ctx.strokeStyle = "#4b5563"; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath();
+                    ctx.moveTo(obj.points[0].x, obj.points[0].y);
+                    obj.points.forEach(p => ctx.lineTo(p.x, p.y));
+                    ctx.stroke();
+                }
+            });
+        });
+
+        // Status
+        onValue(ref(database, ".info/connected"), (snap) => {
+            boardStatus.innerText = snap.val() ? "● LIVE" : "● offline";
+            boardStatus.classList.toggle('bg-green-100', snap.val());
+        });
+
+        // Event listeners
+        canvas.addEventListener('mousedown', startBoardAction);
+        window.addEventListener('mousemove', moveBoardAction);
+        window.addEventListener('mouseup', stopBoardAction);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); startBoardAction(e); }, { passive: false });
+        window.addEventListener('touchmove', (e) => { e.preventDefault(); moveBoardAction(e); }, { passive: false });
+        window.addEventListener('touchend', stopBoardAction);
+
+        // Knoppen
+        addBtn.onclick = () => {
+            const val = wordInput.value.trim();
+            if (val) {
+                push(ref(database, `classes/${currentClass}/board`), { type: 'text', text: val, x: 150, y: 150 });
+                wordInput.value = '';
+            }
+        };
+        clearBtn.onclick = () => {
+            if (confirm("Hele bord wissen?")) remove(ref(database, `classes/${currentClass}/board`));
+        };
+    }
+
+    // ======================================================
+    // RESET & LOGOUT
+    // ======================================================
+    function resetApp() {
+        // Verwijder PV listeners
+        if (pvQuery) {
+            pvQuery.off();
+            pvQuery = null;
+        }
+        for (let [key, listenerRef] of feedbackListeners) {
+            listenerRef.off();
+        }
+        feedbackListeners.clear();
+
+        // Board listeners worden automatisch verwijderd bij logout, maar we kunnen ze niet eenvoudig afmelden.
+        // We herladen de pagina voor een schone start (of we kunnen de listeners opslaan, maar voor nu herladen we).
+        // Simpel: herlaad de pagina.
+        location.reload();
+    }
+
+    function wisAlleData() {
+        if (confirm("Weet je zeker dat je ALLE data (PV + Digibord) voor deze klas wilt verwijderen? Dit is onomkeerbaar!")) {
+            const klasRef = ref(database, `classes/${currentClass}`);
+            const pvRef = ref(database, 'pv_bevindingen');
+            // Verwijder board en PV-inzendingen (alleen die van deze klas)
+            // We kunnen een query doen, maar simpel: verwijder de hele klasnode en de pv-bevingen die bij de klas horen.
+            // Maar pv_bevindingen bevat alle klassen, dus we moeten filteren.
+            // Oplossing: we verwijderen de board node en we verwijderen alle pv_inzendingen met deze klas.
+            remove(ref(database, `classes/${currentClass}/board`));
+            // PV verwijderen per item (we kunnen een query doen)
+            const pvRefQuery = query(ref(database, 'pv_bevindingen'), orderByChild('klas'), equalTo(currentClass));
+            onValue(pvRefQuery, (snap) => {
+                snap.forEach(child => {
+                    remove(child.ref);
+                });
+            }, { onlyOnce: true });
+            alert("Data wordt verwijderd...");
+        }
+    }
+
+    // ======================================================
+    // TABS & LOGIN
+    // ======================================================
+    tabPv.addEventListener('click', () => {
+        tabPv.classList.add('active');
+        tabBoard.classList.remove('active');
+        pvPanel.classList.remove('hidden');
+        boardPanel.classList.add('hidden');
+    });
+    tabBoard.addEventListener('click', () => {
+        tabBoard.classList.add('active');
+        tabPv.classList.remove('active');
+        boardPanel.classList.remove('hidden');
+        pvPanel.classList.add('hidden');
+        // Canvas grootte aanpassen na switch
+        setTimeout(() => {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        }, 50);
+    });
+
+    loginForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const naam = studentNameInput.value.trim();
+        const klas = studentClassSelect.value;
+        if (!naam || !klas) {
+            alert("Vul je voornaam en kies een klas.");
+            return;
+        }
+        currentStudent = naam;
+        currentClass = klas;
+
+        displayUser.textContent = currentStudent;
+        displayClass.textContent = currentClass;
+        feedClassLabel.textContent = currentClass;
+
+        loginScreen.classList.add('hidden');
+        appScreen.classList.remove('hidden');
+
+        // Setup PV
+        setupPvListeners();
+
+        // Setup Board
+        setupBoardListeners();
+
+        // Canvas initialiseren
+        setTimeout(() => {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        }, 100);
+    });
+
+    document.getElementById('btn-logout').addEventListener('click', resetApp);
+    document.getElementById('btn-wipe-data').addEventListener('click', wisAlleData);
+
+    // PV formulier
+    pvForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const tekst = pvText.value.trim();
+        if (!tekst) {
+            alert("Vul een PV in.");
+            return;
+        }
+        push(ref(database, 'pv_bevindingen'), {
+            student: currentStudent,
+            klas: currentClass,
+            tekst: tekst,
+            timestamp: Date.now()
+        }).then(() => {
+            pvText.value = '';
+            liveFeed.scrollTop = liveFeed.scrollHeight;
+        }).catch(err => {
+            console.error("Fout bij opslaan PV:", err);
+            alert("PV kon niet worden opgeslagen.");
+        });
+    });
+
+    // Zorg dat window.verzendFeedback beschikbaar is
+    window.verzendFeedback = verzendFeedback;
+
+    // Initialisatie: bij tab switch canvas opnieuw schalen
+    window.addEventListener('resize', () => {
+        if (!boardPanel.classList.contains('hidden')) {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        }
+    });
+</script>
+</body>
+</html>
